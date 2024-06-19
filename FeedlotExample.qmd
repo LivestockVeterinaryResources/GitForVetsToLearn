@@ -1,0 +1,119 @@
+---
+title: "Feedlot Example"
+format: html
+---
+
+## setup
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(janitor)
+library(lubridate)
+library(conflicted)
+
+
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(skimr::skim)
+
+```
+
+## read in data
+
+### get a list of names in your data folder
+
+```{r}
+list_feedlot_files<-tibble(file_name = list.files('Data/FeedlotData'))%>%
+  mutate(full_path = paste0('Data/FeedlotData/', file_name))
+
+```
+
+
+### read in files one at a time
+
+```{r}
+
+lot_LL3<-read_csv(list_feedlot_files$full_path[[1]])
+lot_MM3_1<-read_csv(list_feedlot_files$full_path[[2]])
+lot_MM3_2<-read_csv(list_feedlot_files$full_path[[3]])
+yardsheet_default<-read_csv(list_feedlot_files$full_path[[4]])
+
+#redo yardsheet and control the data type
+yardsheet<-read_csv(list_feedlot_files$full_path[[4]], 
+                    col_types = cols(.default = "c")) #bring in all columns as characters
+
+
+#understand why to force character data type
+sk_yardsheet_default<-skim(yardsheet_default)
+sk_yardsheet<-skim(yardsheet)
+
+waldo::compare(sk_yardsheet, sk_yardsheet_default)
+
+```
+
+### or use a loop to read them in and put similar file types together
+
+```{r}
+# get a list of only AA files
+aa_file_list<-list_feedlot_files%>%
+  filter(str_detect(file_name, 'AA.'))
+
+#create a place to put the data
+all_animal_activity<-NULL
+
+#i=1 set i to equal 1 for testing your loop
+for (i in seq_along(aa_file_list$full_path)){
+  df<-read_csv(aa_file_list$full_path[[i]], col_types = cols(.default = "c"))%>%
+    mutate(original_file_path = paste0(aa_file_list$full_path[[i]]))
+  
+  all_animal_activity<-bind_rows(all_animal_activity, df)
+}
+
+```
+
+
+## Wrangle Data
+
+### deal with the orginal format of animal activity data
+```{r}
+#manual clean up one column at a time
+all_animal_activity2<-all_animal_activity%>%
+  clean_names()%>% #clean up the names so they are easy to use in R
+  fill(tag)%>% #fill tag so that there is a tag attached to each treatment
+  mutate(DATE_original = date)%>% #this preserves the orginal date in case your reformating fails
+  mutate(date = mdy(date))%>% # this makes the date a "real" date
+  mutate(weight = parse_number(weight), 
+         temp = parse_number(temp))%>% #make weight and temp numbers
+  mutate(Yard = 'PracticeYard', #assign a yard
+         Animal_Id = paste0(Yard, tag, uhf, rfid, alt, lot) ) #create a unique animal id
+
+```
+
+
+### clean up the yardsheet data
+
+```{r}
+#automate some of the cleanup - more dangerous but good after you are sure of your data
+yardsheet2<-yardsheet%>%
+  clean_names()%>% #clean up the names so they are easy to use in R
+  select(-contains('percent'))%>%
+  mutate(across(.cols = contains('pull'),  #make pull counts and percentages numbers
+                parse_number, 
+                .names = "{.col}_num"))%>%
+  mutate(across(.cols = contains('_wt'),  #make pull counts and percentages numbers
+                parse_number, 
+                .names = "{.col}_num"))%>%
+  mutate(across(.cols = contains('date'),  #make pull counts and percentages numbers
+                mdy))%>%
+  mutate(across(.cols = c("receive", 'live', 'home', 'buller', 'hosp', 'ship', 'dead', 'transfer_out', 'railed'), 
+         parse_number)) # make count columns numbers
+
+
+
+
+
+
+```
+
+
+

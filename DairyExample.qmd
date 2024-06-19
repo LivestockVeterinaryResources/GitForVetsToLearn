@@ -1,0 +1,186 @@
+---
+title: "Dairy Example"
+format: html
+---
+
+## setup
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(janitor)
+library(lubridate)
+library(conflicted)
+
+
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(skimr::skim)
+
+
+
+```
+
+## Data source
+
+The pull code used to get these files was
+
+"EVENTS\2SIC #1 #2 #4 #5 #6 #11 #12 #13 #15 #28 #29 #30 #31 #32 #38 #40 #43"
+
+The time frame for each file was then selected and the file was named accordingly.  
+All events were included in the dump
+CAUTION: not all the tombstone info is valid for all projects if pulled in this way
+
+## read in data
+
+### get a list of names in your data folder
+
+```{r}
+list_Dairy_files<-tibble(file_name = list.files('Data/DairyData'))%>%
+  mutate(full_path = paste0('Data/DairyData/', file_name))
+
+```
+
+
+### read in files one at a time
+
+This is error prone and dangerous if you have many files, but it is helpful to understand what happens later
+
+```{r}
+ExampleDairy2019<-read_csv(list_Dairy_files$full_path[[1]])
+ExampleDairy2020<-read_csv(list_Dairy_files$full_path[[2]])
+ExampleDairy2021<-read_csv(list_Dairy_files$full_path[[3]])
+ExampleDairy2022<-read_csv(list_Dairy_files$full_path[[4]])
+ExampleDairy2023<-read_csv(list_Dairy_files$full_path[[5]])
+ExampleDairy2024<-read_csv(list_Dairy_files$full_path[[6]])
+
+
+#redo the 2022 year and control variable type
+ExampleDairy2022_c<-read_csv(list_Dairy_files$full_path[[4]], 
+                    col_types = cols(.default = "c")) #bring in all columns as characters
+
+
+#understand why to force character data type
+sk_ExampleDairy2022<-skim(ExampleDairy2022)
+sk_ExampleDairy2022_c<-skim(ExampleDairy2022_c)
+
+```
+
+### compare the 2 ways of reading in data
+
+#### if they are the same, here is the result
+
+```{r}
+
+waldo::compare(sk_ExampleDairy2022, sk_ExampleDairy2022 ) #Note: as an example of perfect match,  compared the same file to itself 
+
+```
+
+#### if they are different, the differences are identified
+
+```{r}
+waldo::compare(sk_ExampleDairy2022, sk_ExampleDairy2022_c ) 
+
+```
+
+### or use a loop to read them in and put similar file types together
+
+```{r}
+
+
+#create a place to put the data
+events<-NULL
+
+#i=1 set i to equal 1 for testing your loop
+for (i in seq_along(list_Dairy_files$full_path)){
+  df<-read_csv(list_Dairy_files$full_path[[i]], col_types = cols(.default = "c"))%>%
+    mutate(original_file_path = paste0(list_Dairy_files$full_path[[i]]))
+  
+  events<-bind_rows(events, df)
+}
+
+```
+
+## Wrangle events
+
+This code demonstrates common formating processes that make an event pull more useful
+
+
+
+### deal with the orginal format of animal activity data
+```{r}
+#manual clean up one column at a time
+events2<-events%>%
+  clean_names()%>% #clean up the names so they are easy to use in R
+  mutate(DATE_original = date)%>% #this preserves the orginal date in case your reformating fails
+  mutate(date = mdy(date))%>% # this makes the date a "real" date
+  mutate(dim_num = parse_number(dim), #make dim a number
+         RC_num = parse_number(rc), 
+         lact_num = parse_number(lact))%>% #make RC a number
+  mutate(Herd = 'ExampleDairy', #assign a yard
+         cowid = paste0(Herd, id, bdat), #create a unique animal id 
+         cowid_lact = paste0(Herd, id, bdat, '_', lact) #create a unique id for cow/lactation
+         ) %>%
+  mutate(status_ardat = case_when(
+    (ardat %in% '00000000')~'Active', 
+    TRUE~'Inactive')
+    )
+
+
+```
+
+## Summarize the data
+
+Formating allows summary to be easy
+
+#count the number of cows that freshed by month and lact group
+```{r}
+
+fresh_count_cleanup<-events2%>%
+  filter(event %in% 'FRESH')%>%
+  mutate(floordate_month = floor_date(date, unit = 'month'))%>% 
+  mutate(lact_grp = case_when(
+    (lact_num == 0)~'Heifer', 
+    (lact_num == 1)~'1st', 
+    (lact_num == 2)~'2nd', 
+    (lact_num >2)~'3+', 
+    TRUE~'Unknown')
+  )
+
+fresh_count_summary<-fresh_count_cleanup%>%
+ group_by(lact_grp, floordate_month, status_ardat)%>%
+  summarize(ct_cowid_lact = n_distinct(cowid_lact))%>%
+  ungroup
+
+ggplot(fresh_count_summary)+
+  geom_bar(aes(x = floordate_month, y = ct_cowid_lact, fill = status_ardat), stat = 'identity')
+
+```
+
+
+### clean up the yardsheet data
+
+```{r}
+#automate some of the cleanup - more dangerous but good after you are sure of your data
+yardsheet2<-yardsheet%>%
+  clean_names()%>% #clean up the names so they are easy to use in R
+  select(-contains('percent'))%>%
+  mutate(across(.cols = contains('pull'),  #make pull counts and percentages numbers
+                parse_number, 
+                .names = "{.col}_num"))%>%
+  mutate(across(.cols = contains('_wt'),  #make pull counts and percentages numbers
+                parse_number, 
+                .names = "{.col}_num"))%>%
+  mutate(across(.cols = contains('date'),  #make pull counts and percentages numbers
+                mdy))%>%
+  mutate(across(.cols = c("receive", 'live', 'home', 'buller', 'hosp', 'ship', 'dead', 'transfer_out', 'railed'), 
+         parse_number)) # make count columns numbers
+
+
+
+
+
+
+```
+
+
+
