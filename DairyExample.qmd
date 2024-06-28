@@ -88,7 +88,7 @@ waldo::compare(sk_ExampleDairy2022, sk_ExampleDairy2022_c )
 
 
 #create a place to put the data
-events<-NULL
+events<-NULL #assigning null here rather than a blank data frame of the correct dimensions is generally frowned upon from a programing perspective but is a hack that works for most DC305 data you will encounter 
 
 #i=1 set i to equal 1 for testing your loop
 for (i in seq_along(list_Dairy_files$full_path)){
@@ -96,6 +96,7 @@ for (i in seq_along(list_Dairy_files$full_path)){
     mutate(original_file_path = paste0(list_Dairy_files$full_path[[i]]))
   
   events<-bind_rows(events, df)
+  print(i)
 }
 
 ```
@@ -111,12 +112,15 @@ This code demonstrates common formating processes that make an event pull more u
 #manual clean up one column at a time
 events2<-events%>%
   clean_names()%>% #clean up the names so they are easy to use in R
-  mutate(DATE_original = date)%>% #this preserves the orginal date in case your reformating fails
+  mutate(DATE_original = date)#%>% #this preserves the orginal date in case your reformating fails
+  
+events3<-events2%>%
   mutate(date = mdy(date))%>% # this makes the date a "real" date
+  #this is the one by one method, future code will demonstrate how to do this to a list of columns
   mutate(dim_num = parse_number(dim), #make dim a number
-         RC_num = parse_number(rc), 
+         RC_num = parse_number(rc), #make RC a number
          lact_num = parse_number(lact))%>% #make RC a number
-  mutate(Herd = 'ExampleDairy', #assign a yard
+  mutate(Herd = 'ExampleDairy', #assign a Herd identifier
          cowid = paste0(Herd, id, bdat), #create a unique animal id 
          cowid_lact = paste0(Herd, id, bdat, '_', lact) #create a unique id for cow/lactation
          ) %>%
@@ -124,6 +128,8 @@ events2<-events%>%
     (ardat %in% '00000000')~'Active', 
     TRUE~'Inactive')
     )
+
+
 
 
 ```
@@ -135,7 +141,7 @@ Formating allows summary to be easy
 #count the number of cows that freshed by month and lact group
 ```{r}
 
-fresh_count_cleanup<-events2%>%
+fresh_count_cleanup<-events3%>%
   filter(event %in% 'FRESH')%>%
   mutate(floordate_month = floor_date(date, unit = 'month'))%>% 
   mutate(lact_grp = case_when(
@@ -155,32 +161,4 @@ ggplot(fresh_count_summary)+
   geom_bar(aes(x = floordate_month, y = ct_cowid_lact, fill = status_ardat), stat = 'identity')
 
 ```
-
-
-### clean up the yardsheet data
-
-```{r}
-#automate some of the cleanup - more dangerous but good after you are sure of your data
-yardsheet2<-yardsheet%>%
-  clean_names()%>% #clean up the names so they are easy to use in R
-  select(-contains('percent'))%>%
-  mutate(across(.cols = contains('pull'),  #make pull counts and percentages numbers
-                parse_number, 
-                .names = "{.col}_num"))%>%
-  mutate(across(.cols = contains('_wt'),  #make pull counts and percentages numbers
-                parse_number, 
-                .names = "{.col}_num"))%>%
-  mutate(across(.cols = contains('date'),  #make pull counts and percentages numbers
-                mdy))%>%
-  mutate(across(.cols = c("receive", 'live', 'home', 'buller', 'hosp', 'ship', 'dead', 'transfer_out', 'railed'), 
-         parse_number)) # make count columns numbers
-
-
-
-
-
-
-```
-
-
 
